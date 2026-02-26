@@ -6,14 +6,16 @@ import { Input } from "@/components/ui/input";
 import { VerificationStep } from "@/components/VerificationStep";
 import { ScanProgress } from "@/components/ScanProgress";
 import { ScanResults } from "@/components/ScanResults";
-import { generateToken, getMockScanResult } from "@/lib/scanner";
+import { generateToken, verifyOwnership, runSecurityScan } from "@/lib/scanner";
 import { ScanPhase, ScanResult } from "@/types/scanner";
+import { useToast } from "@/hooks/use-toast";
 
 const Index = () => {
   const [phase, setPhase] = useState<ScanPhase>("idle");
   const [url, setUrl] = useState("");
   const [token, setToken] = useState("");
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const { toast } = useToast();
 
   const handleSubmitUrl = useCallback(() => {
     if (!url.trim()) return;
@@ -26,19 +28,42 @@ const Index = () => {
     setPhase("token-generated");
   }, [url]);
 
-  const handleVerify = useCallback(() => {
+  const handleVerify = useCallback(async () => {
     setPhase("verifying");
-    // Simulate verification delay
-    setTimeout(() => {
-      setPhase("verified");
-      setTimeout(() => setPhase("scanning"), 1500);
-    }, 2000);
-  }, []);
+    const result = await verifyOwnership(url, token);
 
-  const handleScanComplete = useCallback(() => {
-    setScanResult(getMockScanResult(url));
-    setPhase("complete");
-  }, [url]);
+    if (result.error) {
+      toast({ title: "Verification Error", description: result.error, variant: "destructive" });
+      setPhase("token-generated");
+      return;
+    }
+
+    if (!result.verified) {
+      toast({
+        title: "Verification Failed",
+        description: "META tag not found. Make sure you've added the tag to your homepage and deployed the changes.",
+        variant: "destructive",
+      });
+      setPhase("token-generated");
+      return;
+    }
+
+    setPhase("verified");
+    setTimeout(() => setPhase("scanning"), 1500);
+  }, [url, token, toast]);
+
+  const handleScanComplete = useCallback(async () => {
+    const { result, error } = await runSecurityScan(url);
+    if (error) {
+      toast({ title: "Scan Error", description: error, variant: "destructive" });
+      setPhase("verified");
+      return;
+    }
+    if (result) {
+      setScanResult(result);
+      setPhase("complete");
+    }
+  }, [url, toast]);
 
   const handleReset = useCallback(() => {
     setPhase("idle");
@@ -49,11 +74,9 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background bg-grid relative">
-      {/* Subtle overlay */}
       <div className="fixed inset-0 bg-gradient-to-b from-background via-background/95 to-background pointer-events-none" />
 
       <div className="relative z-10">
-        {/* Header */}
         <header className="border-b border-border bg-card/50 backdrop-blur-sm">
           <div className="container max-w-4xl mx-auto flex items-center justify-between py-4 px-4">
             <div className="flex items-center gap-2.5">
@@ -71,7 +94,6 @@ const Index = () => {
 
         <main className="container max-w-3xl mx-auto px-4 py-12">
           <AnimatePresence mode="wait">
-            {/* IDLE — Hero + URL input */}
             {phase === "idle" && (
               <motion.div
                 key="idle"
@@ -117,7 +139,6 @@ const Index = () => {
                   </p>
                 </div>
 
-                {/* Features */}
                 <div className="grid sm:grid-cols-3 gap-4 max-w-2xl mx-auto">
                   {[
                     { title: "Ownership First", desc: "META tag verification ensures you control the target" },
@@ -143,7 +164,6 @@ const Index = () => {
               </motion.div>
             )}
 
-            {/* TOKEN GENERATED — Verification step */}
             {(phase === "token-generated" || phase === "verifying") && (
               <motion.div
                 key="verify"
@@ -160,7 +180,6 @@ const Index = () => {
               </motion.div>
             )}
 
-            {/* VERIFIED — Brief success */}
             {phase === "verified" && (
               <motion.div
                 key="verified"
@@ -183,7 +202,6 @@ const Index = () => {
               </motion.div>
             )}
 
-            {/* SCANNING — Progress */}
             {phase === "scanning" && (
               <motion.div
                 key="scanning"
@@ -195,7 +213,6 @@ const Index = () => {
               </motion.div>
             )}
 
-            {/* COMPLETE — Results */}
             {phase === "complete" && scanResult && (
               <motion.div
                 key="complete"
